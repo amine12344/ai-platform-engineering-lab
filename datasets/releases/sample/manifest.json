@@ -1,0 +1,8 @@
+{
+  "dataset": "SupportOps Synthetic IT Helpdesk Dataset",
+  "release": "sample",
+  "rows": 250,
+  "seed": 20260713,
+  "sha256": "f89a9c2e68641e18c914fe7eae19d75d91249785aa03b019b73b5745077b6500",
+  "schema_fields": 15
+}

@@ -1,0 +1,336 @@
+---
+title: "Lab 1: Recover the data and artifact platform"
+subtitle: "Make SupportOps Inc. helpdesk data durable, queryable, versioned, and recoverable"
+---
+
+# Recover the data and artifact platform {#sec-lab-01}
+
+SupportOps Inc. can now reproduce its local Kubernetes baseline. The inherited
+platform still has no trustworthy place for structured ticket records or
+versioned dataset artifacts. A model trained from an unverified local file
+cannot be reproduced, audited, or recovered.
+
+In this lab, you deploy PostgreSQL and SeaweedFS, generate a deterministic
+synthetic IT helpdesk release, enforce its quality contract, load it into SQL,
+and version its bytes with DVC. You then diagnose a controlled data-quality
+incident and recover from source-controlled generation logic.
+
+::: {.callout-important}
+Complete @sec-lab-00 first. Run this lab from the same WSL repository and the
+same `supportops-ai` Kind cluster. Allow two to three hours on the first run.
+:::
+
+## Mission outcomes {#sec-lab-01-outcomes}
+
+After completing this lab, you can:
+
+- explain the boundary between a relational database, object storage, and DVC;
+- deploy persistent state with Kubernetes StatefulSets and claims;
+- generate the same dataset bytes from a fixed seed;
+- validate schema, domain, uniqueness, and temporal quality rules;
+- load a release idempotently into PostgreSQL;
+- push and verify a DVC artifact through an S3-compatible endpoint;
+- detect corruption and recover from declared generation logic;
+- capture reviewable operational evidence.
+
+## Acceptance criteria {#sec-lab-01-acceptance}
+
+| Area | Required evidence |
+|---|---|
+| Regression | Every Lab 0 verification still passes. |
+| Object storage | Pinned SeaweedFS is Ready and owns a persistent claim. |
+| Relational store | Pinned PostgreSQL is Ready and owns a persistent claim. |
+| Dataset | Exactly 250 records satisfy the canonical 15-field contract. |
+| SQL | `helpdesk.tickets` contains exactly 250 valid rows. |
+| Versioning | DVC reports that local and remote content are synchronized. |
+| Recovery | Deliberate corruption fails validation; regeneration restores it. |
+| Evidence | Automated Lab 1 verification reports zero failures. |
+
+: Lab 1 acceptance contract. {#tbl-lab-01-acceptance}
+
+## Architecture and responsibility boundaries {#sec-lab-01-architecture}
+
+```{mermaid}
+%%| label: fig-lab-01-data-flow
+%%| fig-cap: "One deterministic release flows through validation into query and artifact systems."
+
+flowchart LR
+  Generator["Seeded Python generator"] --> CSV["tickets.csv"]
+  CSV --> Quality["Quality contract"]
+  Quality --> Loader["Idempotent SQL loader"]
+  Loader --> PostgreSQL["PostgreSQL<br/>queryable records"]
+  Quality --> DVC["DVC metadata"]
+  DVC --> S3["SeaweedFS S3<br/>versioned bytes"]
+  Verify["Lab 1 verification"] --> Quality
+  Verify --> PostgreSQL
+  Verify --> S3
+  Verify --> Baseline["Lab 0 regression"]
+```
+
+PostgreSQL supports relational queries and constraints. SeaweedFS holds opaque
+artifact bytes through an S3-compatible API. DVC records content identity and
+connects Git history to those bytes. None replaces the others.
+
+Read `docs/lab-architecture/adr-0002-data-artifact-boundaries.md` before making
+changes. It records these durable boundaries and the local secret strategy.
+
+## Step 0: Confirm the trusted baseline {#sec-lab-01-step-0}
+
+From the repository root in WSL, check the branch and rerun Lab 0 verification:
+
+```bash
+git branch --show-current
+make verify-lab-0
+```
+
+The branch should be `labs/lab-00-lab-01-guides`, and the final verification
+line should show no failures. If it does not, stop and repair the baseline;
+adding stateful services to an unhealthy cluster makes diagnosis ambiguous.
+
+::: {.callout-tip title="Tutor checkpoint"}
+Explain aloud why a Ready Pod is not enough evidence for Lab 0. Your answer
+should include registry resolution and the ingress request path.
+:::
+
+## Step 1: Inspect the pinned components {#sec-lab-01-step-1}
+
+```bash
+grep -E 'SEAWEEDFS|POSTGRES|DVC' platform/versions.env
+```
+
+The file pins all three dependencies. Kubernetes manifests also use explicit
+image tags, so a deployment does not silently change after an upstream release.
+
+Inspect desired state before applying it:
+
+```bash
+kubectl apply --dry-run=client -f platform/data/seaweedfs.yaml
+kubectl apply --dry-run=client -f platform/data/postgresql.yaml
+```
+
+Notice that both workloads are StatefulSets and both request 5 GiB persistent
+claims. PostgreSQL references a Secret but the password is absent from Git.
+
+## Step 2: Install the pinned DVC client {#sec-lab-01-step-2}
+
+```bash
+make install-lab-1-tools
+.venv/bin/dvc --version
+```
+
+The target creates `.venv`, uses the repository cache, and installs the exact
+DVC version from `platform/versions.env`. The environment and cache are ignored
+by Git.
+
+::: {.callout-note title="Why repository-local tooling?"}
+A project-local virtual environment prevents a workstation upgrade from
+changing the lab's behavior. It also makes the required tool boundary visible.
+:::
+
+## Step 3: Cache container dependencies {#sec-lab-01-step-3}
+
+```bash
+make cache-lab-1
+```
+
+This pulls the pinned SeaweedFS and PostgreSQL images and, when the Kind cluster
+exists, preloads them into its nodes. Inspect the result:
+
+```bash
+docker image inspect chrislusf/seaweedfs:4.29 --format '{{.Id}}'
+docker image inspect postgres:17.10-alpine --format '{{.Id}}'
+```
+
+## Step 4: Deploy persistent data services {#sec-lab-01-step-4}
+
+```bash
+make deploy-data-platform
+kubectl -n supportops-data get statefulsets,pods,pvc,ingress
+```
+
+The deployment script generates strong local PostgreSQL and S3 credentials
+under `.local/lab-01`, creates or updates Kubernetes Secrets, applies desired
+state, waits for both StatefulSets, and creates the `supportops-dvc` bucket.
+Credentials are runtime state and are never committed. The complete authenticated
+S3 path is checked by `make verify-lab-1` after DVC is configured.
+
+::: {.callout-tip title="Tutor checkpoint"}
+Delete only the PostgreSQL Pod, wait for recreation, and confirm the PVC name
+does not change. A StatefulSet restores the identity; the claim preserves data.
+Do not delete the claim.
+:::
+
+## Step 5: Resolve the local S3 hostname {#sec-lab-01-step-5}
+
+DVC must use the same host that the Ingress rule expects. Add this entry in WSL
+if it is not already present:
+
+```bash
+grep -q 's3.supportops.local' /etc/hosts || \
+  echo '127.0.0.1 s3.supportops.local' | sudo tee -a /etc/hosts
+getent hosts s3.supportops.local
+```
+
+The expected address is `127.0.0.1`. This is workstation routing configuration,
+not Kubernetes DNS.
+
+## Step 6: Generate the deterministic release {#sec-lab-01-step-6}
+
+```bash
+make generate-dataset
+head -n 3 datasets/releases/sample/tickets.csv
+wc -l datasets/releases/sample/tickets.csv
+```
+
+The result contains one header and 250 records. The generator uses seed
+`20260713`, fixed timestamps, a stable field order, and Unix line endings.
+Run it twice and compare hashes:
+
+```bash
+sha256sum datasets/releases/sample/tickets.csv
+make generate-dataset
+sha256sum datasets/releases/sample/tickets.csv
+```
+
+Both hashes must match. Determinism means the same declared inputs create the
+same bytes; it does not mean the synthetic records represent real customers.
+
+## Step 7: Study the quality contract {#sec-lab-01-step-7}
+
+```bash
+python3 datasets/verify_supportops.py
+```
+
+The verifier checks:
+
+- the exact 15-field order;
+- exactly 250 rows and unique ticket identifiers;
+- valid category and subcategory pairs;
+- the `P1` through `P4` priority domain;
+- satisfaction scores from 1 through 5;
+- valid timestamps and positive resolution intervals.
+
+Open `datasets/generate_supportops.py` and `datasets/verify_supportops.py` side
+by side. The generator states what should exist; the verifier independently
+tests what actually exists.
+
+## Step 8: Load PostgreSQL idempotently {#sec-lab-01-step-8}
+
+```bash
+make load-dataset
+kubectl -n supportops-data exec postgresql-0 -- \
+  psql -U supportops -d supportops -c \
+  'SELECT category, count(*) FROM helpdesk.tickets GROUP BY category ORDER BY category;'
+```
+
+The loader creates the schema and constrained table if necessary, truncates the
+previous release, imports the CSV, and asserts the row count. Run the target a
+second time; the count remains 250 because the workflow replaces a release
+instead of appending duplicates.
+
+## Step 9: Version the artifact with DVC {#sec-lab-01-step-9}
+
+```bash
+make configure-dvc
+git status --short
+.venv/bin/dvc remote list
+.venv/bin/dvc status --cloud
+```
+
+DVC initializes repository metadata, declares `supportops-s3` as the default
+remote, records the CSV content hash, uploads the bytes, and verifies remote
+state. Local-only access values remain in `.dvc/config.local`, which Git ignores.
+
+Review the separation:
+
+```bash
+sed -n '1,120p' .dvc/config
+sed -n '1,120p' datasets/releases/sample/tickets.csv.dvc
+git check-ignore -v .dvc/config.local
+```
+
+Git tracks the small configuration and pointer. SeaweedFS stores the dataset
+bytes. Never print or commit `.dvc/config.local` in a real environment.
+
+## Step 10: Run the complete acceptance suite {#sec-lab-01-step-10}
+
+```bash
+make verify-lab-1
+```
+
+The suite begins with every Lab 0 check, then validates image pins, readiness,
+persistent claims, S3 reachability, the file contract, SQL records, and DVC
+synchronization. A passing new feature that breaks the baseline is not accepted.
+
+## Step 11: Diagnose the controlled incident {#sec-lab-01-step-11}
+
+Inject one invalid priority:
+
+```bash
+make incident-lab-1
+```
+
+The target succeeds only when the quality verifier rejects the corrupted file.
+Confirm the diagnosis without editing the file manually:
+
+```bash
+python3 datasets/verify_supportops.py || true
+grep 'SUP-000001' datasets/releases/sample/tickets.csv
+```
+
+The failure is in dataset content, not PostgreSQL availability or SeaweedFS
+health. The invalid value violates the declared domain.
+
+```{mermaid}
+%%| label: fig-lab-01-recovery
+%%| fig-cap: "Evidence narrows the incident before declared generation logic restores the release."
+
+flowchart TD
+  Alert["Quality verification fails"] --> Scope{"Infrastructure healthy?"}
+  Scope -->|No| Infra["Repair service path"]
+  Scope -->|Yes| Contract["Read exact contract failure"]
+  Contract --> Source{"Generator changed?"}
+  Source -->|Yes| Review["Review source and seed"]
+  Source -->|No| Corruption["Treat file as corrupted output"]
+  Corruption --> Regenerate["Regenerate declared release"]
+  Regenerate --> Reload["Reload SQL and repush DVC"]
+  Reload --> Verify["Run full acceptance suite"]
+```
+
+## Step 12: Recover and capture evidence {#sec-lab-01-step-12}
+
+```bash
+make recover-lab-1
+make evidence-lab-1
+find evidence/lab-01 -type f -maxdepth 2 -print
+```
+
+Recovery regenerates the canonical bytes, validates them, reloads PostgreSQL,
+updates the DVC artifact, and runs the complete suite. Evidence includes platform
+state, SQL aggregation, quality output, DVC status, and verification output.
+Use `docs/lab-architecture/lab-01-runbook.md` when repeating the procedure.
+
+## Optional one-command path {#sec-lab-01-bootstrap}
+
+After Lab 0 is healthy and `/etc/hosts` resolves `s3.supportops.local`, the full
+happy path is:
+
+```bash
+make bootstrap-lab-1
+```
+
+Use the individual steps on your first attempt. The combined target is for
+repeatability, not a substitute for understanding each boundary.
+
+## Completion review {#sec-lab-01-completion}
+
+Before marking Lab 1 complete, answer these questions:
+
+1. Which repository file can recreate the dataset when the CSV is lost?
+2. Which system stores queryable rows, and which stores versioned bytes?
+3. Why is a DVC pointer useful in Git while a generated credential is not?
+4. Which evidence proves that Lab 1 did not regress Lab 0?
+5. What would remain after a Pod restart, and what would be lost after PVC deletion?
+
+You are ready for the next lab when you can answer all five and
+`make verify-lab-1` reports zero failures.

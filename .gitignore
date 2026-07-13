@@ -3,3 +3,13 @@
 /lab-handbook/index.html
 /lab-handbook/index.tex
 /lab-handbook/index_files/
+/index.tex
+/lab-handbook/labs/lab-00_files/
+/lab-handbook/labs/lab-01_files/
+/_site/
+/.cache/
+/.local/
+/evidence/
+/.venv/
+**/__pycache__/
+/.dvc/config.local
