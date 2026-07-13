@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+set -Eeuo pipefail
+
 source "$(dirname "$0")/common.sh"
 require_command kubectl
 [[ -f "${DATASET}" ]] || fail "Generate the dataset first"
@@ -11,19 +13,19 @@ CREATE SCHEMA IF NOT EXISTS helpdesk;
 CREATE TABLE IF NOT EXISTS helpdesk.tickets (
   ticket_id text PRIMARY KEY,
   created_at timestamptz NOT NULL,
-  resolved_at timestamptz NOT NULL,
   channel text NOT NULL,
+  language text NOT NULL,
+  customer_tier text NOT NULL,
+  product text NOT NULL,
+  subject text NOT NULL,
+  body text NOT NULL,
   category text NOT NULL,
-  subcategory text NOT NULL,
   priority text NOT NULL CHECK (priority IN ('P1','P2','P3','P4')),
-  requester_department text NOT NULL,
-  requester_region text NOT NULL,
-  assigned_team text NOT NULL,
-  summary text NOT NULL,
-  description text NOT NULL,
-  resolution text NOT NULL,
+  escalated boolean NOT NULL,
+  resolution_time_minutes integer NOT NULL CHECK (resolution_time_minutes > 0),
+  agent_response text NOT NULL,
   satisfaction_score integer NOT NULL CHECK (satisfaction_score BETWEEN 1 AND 5),
-  resolution_minutes integer NOT NULL CHECK (resolution_minutes > 0)
+  CONSTRAINT valid_language CHECK (language IN ('en','fr','es','de'))
 );
 TRUNCATE helpdesk.tickets;
 \copy helpdesk.tickets FROM '/tmp/tickets.csv' WITH (FORMAT csv, HEADER true)

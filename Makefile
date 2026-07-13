@@ -8,7 +8,7 @@ PROFILE ?= 16gb
 	incident-lab-0 recover-lab-0 evidence-lab-0 destroy-cluster destroy-all \
 	install-lab-1-tools cache-lab-1 deploy-data-platform generate-dataset \
 	load-dataset configure-dvc bootstrap-lab-1 verify-lab-1 incident-lab-1 \
-	recover-lab-1 evidence-lab-1
+	recover-lab-1 evidence-lab-1 test-lab-1
 
 help:
 	@printf '%s\n' \
@@ -35,6 +35,7 @@ help:
 	  '  make cache-lab-1             Cache SeaweedFS and PostgreSQL images' \
 	  '  make deploy-data-platform    Deploy persistent object and relational stores' \
 	  '  make generate-dataset        Generate and validate the 250-ticket release' \
+	  '  make test-lab-1              Run deterministic dataset unit tests' \
 	  '  make load-dataset            Load the release into PostgreSQL' \
 	  '  make configure-dvc           Track and push the release through DVC' \
 	  '  make bootstrap-lab-1         Run the complete Lab 1 workflow' \
@@ -97,7 +98,10 @@ load-dataset:
 configure-dvc:
 	@bash labs/lab-01/scripts/configure-dvc.sh
 
-bootstrap-lab-1: verify-lab-0 install-lab-1-tools cache-lab-1 deploy-data-platform generate-dataset load-dataset configure-dvc verify-lab-1
+test-lab-1:
+	@python3 -m unittest discover -s tests -p 'test_*.py' -v
+
+bootstrap-lab-1: verify-lab-0 test-lab-1 install-lab-1-tools cache-lab-1 deploy-data-platform generate-dataset load-dataset configure-dvc verify-lab-1
 
 verify-lab-1:
 	@bash verification/lab-01/verify.sh

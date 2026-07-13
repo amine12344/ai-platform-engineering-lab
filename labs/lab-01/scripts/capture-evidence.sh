@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+set -Eeuo pipefail
+
 source "$(dirname "$0")/common.sh"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 OUT="${REPO_ROOT}/evidence/lab-01/${STAMP}"

@@ -1,7 +1,13 @@
 #!/usr/bin/env bash
 
+set -Eeuo pipefail
+
 source "$(dirname "$0")/common.sh"
 require_command kubectl
+require_command getent
+[[ -x "${REPO_ROOT}/.venv/bin/python" ]] || fail "Run make install-lab-1-tools first"
+getent hosts "${S3_HOST}" | grep -q '127\.0\.0\.1' \
+  || fail "Map ${S3_HOST} to 127.0.0.1 in /etc/hosts before deployment"
 
 k get namespace "${DATA_NAMESPACE}" >/dev/null || fail "Run Lab 0 before Lab 1"
 

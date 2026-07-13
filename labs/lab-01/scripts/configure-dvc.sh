@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+set -Eeuo pipefail
+
 source "$(dirname "$0")/common.sh"
 DVC="${REPO_ROOT}/.venv/bin/dvc"
 [[ -x "${DVC}" ]] || fail "Run make install-lab-1-tools first"

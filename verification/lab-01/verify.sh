@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -u
+set -Eeuo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 # shellcheck source=../../labs/lab-01/scripts/common.sh
@@ -25,7 +25,7 @@ postgres_count() {
 postgres_constraints() {
   [[ "$(k -n "${DATA_NAMESPACE}" exec "${POSTGRES_POD}" -- \
     psql -At -U supportops -d supportops -c \
-    "SELECT count(*) FROM helpdesk.tickets WHERE priority NOT IN ('P1','P2','P3','P4') OR satisfaction_score NOT BETWEEN 1 AND 5;")" == "0" ]]
+    "SELECT count(*) FROM helpdesk.tickets WHERE priority NOT IN ('P1','P2','P3','P4') OR satisfaction_score NOT BETWEEN 1 AND 5 OR resolution_time_minutes <= 0;")" == "0" ]]
 }
 
 s3_ready() {
@@ -52,7 +52,7 @@ check "S3-compatible DVC bucket responds" s3_ready
 check "PostgreSQL StatefulSet is available" k -n "${DATA_NAMESPACE}" rollout status statefulset/postgresql --timeout=5s
 check "PostgreSQL uses the pinned image" bash -c "[[ \"\$(kubectl --context '${KUBE_CONTEXT}' -n '${DATA_NAMESPACE}' get statefulset postgresql -o jsonpath='{.spec.template.spec.containers[0].image}')\" == '${POSTGRES_IMAGE}' ]]"
 check "Both data services have persistent claims" bash -c "[[ \"\$(kubectl --context '${KUBE_CONTEXT}' -n '${DATA_NAMESPACE}' get pvc --no-headers | wc -l)\" -ge 2 ]]"
-check "Dataset satisfies the canonical contract" python3 "${REPO_ROOT}/datasets/verify_supportops.py" "${DATASET}"
+check "Dataset satisfies the canonical 14-field contract" python3 "${REPO_ROOT}/datasets/verify_supportops.py" "${DATASET}"
 check "PostgreSQL contains exactly 250 tickets" postgres_count
 check "PostgreSQL constraints contain no violations" postgres_constraints
 check "DVC remote content is synchronized" dvc_clean

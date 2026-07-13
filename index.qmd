@@ -1,5 +1,0 @@
----
-title: "Enterprise AI Platform Engineering Labs"
----
-
-{{< include lab-handbook/index.qmd >}}

@@ -1,3 +1,10 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: platform-health
+  namespace: supportops-platform
+automountServiceAccountToken: false
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -17,6 +24,7 @@ spec:
         app.kubernetes.io/name: platform-health
         app.kubernetes.io/part-of: supportops-ai-platform
     spec:
+      serviceAccountName: platform-health
       automountServiceAccountToken: false
       tolerations:
         - key: node-role.kubernetes.io/control-plane
