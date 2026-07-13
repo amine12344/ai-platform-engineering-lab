@@ -1,0 +1,5 @@
+/.quarto/
+**/*.quarto_ipynb
+/lab-handbook/index.html
+/lab-handbook/index.tex
+/lab-handbook/index_files/
